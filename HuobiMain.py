@@ -4,14 +4,16 @@
 from __future__ import division
 import sys
 import time
+import logging
 
 sys.path.append('/home/workDir/hubi/demo_python-master/')
 from huobi.Util import *
 from huobi import HuobiService
 
+#latest_sell_order_id=None
 latest_sell_order_id=None
 latest_buy_order_id=None
-max_buy_price=4345
+max_buy_price=4350
 transaction_count=0
 transaction_amount=43
 
@@ -20,6 +22,13 @@ transaction_amount=43
 '''
 def latest_deal_orders():
     response = HuobiService.getNewDealOrders(1,NEW_DEAL_ORDERS)
+    print response
+
+'''
+
+'''
+def get_sell_orders():
+    response = HuobiService.getOrders(1,GET_ORDERS)
     print response
 
 '''
@@ -36,10 +45,10 @@ def buy_btc_market(amount):
     if response != None and response['result']=='success':
         latest_buy_order_id = response['id']
         transaction_count += 1
-        print '第',transaction_count,'次以市场价买入成功'
+        logging.info('第%d次以市价买入成功' % transaction_count)
         return response['result']
     else:
-        print 'Error:buy BTC fail!'
+        logging.warning('Error:buy BTC fail!')
         return None
 
 '''
@@ -57,7 +66,7 @@ def sell_btc(price, amount):
         latest_sell_order_id=response['id']
         return response['result']
     else:
-        print 'Error:sell fail!'
+        logging.warning('Error:sell fail!')
         return None
 
 '''
@@ -66,11 +75,11 @@ def sell_btc(price, amount):
 def get_current_price():
     response = HuobiService.get_realtime_price()
     if response != None:
-        print response
-        print '当前人民币市场价格是',response['ticker']['last']
+        #print response
+        logging.info('当前人民币市场价格是 %f' % response['ticker']['last'])
         return response['ticker']['last']
     else:
-        print 'Error:get realtime price fail!'
+        logging.warning('Error:get realtime price fail!')
         return None
 
 class order(object):
@@ -90,14 +99,16 @@ class order(object):
             info['processed_price'] = response['processed_price']
             info['status'] = response['status']
             if response['type']==3:
-                print response['processed_price'],self.order_type[response['type']],'状态是',self.order_status[response['status']]
+                #print response['processed_price'],self.order_type[response['type']],'状态是',self.order_status[response['status']]
+                logging.info('%f %s 状态是 %s' % (float(response['processed_price']),self.order_type[response['type']],self.order_status[response['status']]))
                 info['amount'] = float(response['processed_amount']) / float(response['processed_price'])
             elif response['type']==2:
-                print response['order_price'],self.order_type[response['type']],'状态是',self.order_status[response['status']]
+                #print response['order_price'],self.order_type[response['type']],'状态是',self.order_status[response['status']]
+                logging.info('%s %s 状态是 %s' % (float(response['order_price']),self.order_type[response['type']],self.order_status[response['status']]))
                 info['amount'] = response['order_amount']
             return info
         else:
-            print 'Error:get order info fail!'
+            logging.warning('Error:get order info fail!')
             return None
 
 '''
@@ -108,10 +119,10 @@ def can_buy():
 
     realtime_price = get_current_price()
     if realtime_price != None and realtime_price < max_buy_price:
-        print '当前市场价',realtime_price,'低于设置的最高买入价',max_buy_price
+        logging.info('当前市场价%f低于设置的最高买入价%f' % (realtime_price, max_buy_price))
         result = True
     else:
-        print '当前市场价',realtime_price,'高于设置的最高买入价',max_buy_price
+        logging.info('当前市场价%f高于设置的最高买入价%f' % (realtime_price, max_buy_price))
         result = False
         # 第一个条件不满足立即返回
         return result
@@ -143,26 +154,28 @@ def do_transaction():
            # 卖出
            ret = sell_btc(sell_price,sell_amount)
            if ret=='success':
-               print '以 %f 成功卖出 %f BTC' % (sell_price,sell_amount)
+               logging.info('以 %f 限价卖出 %f BTC委托成功' % (sell_price,sell_amount))
                return ret
            else:
-               print '以 %f 卖出 %f BTC失败' % (sell_price,sell_amount)
+               logging.info('以 %f 限价卖出 %f BTC委托失败' % (sell_price,sell_amount))
                return ret
     else:
-        print '以市场价买入失败'
+        logging.warning('以市场价买入失败')
         return ret
 
 
 def main():
+    #get_sell_orders()
+    logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s %(message)s')
     while 1:
         if transaction_count==0:
-            print '初次以市场价买入'
+            logging.info('初次以市场价买入')
             do_transaction()
         elif can_buy():
-            print '现在立刻以市场价买入'
+            logging.info('现在立刻以市场价买入')
             do_transaction()
         else:
-            print '稍后再尝试买入'
+            logging.info('稍后再尝试买入')
             time.sleep(30)
 
 if __name__ == "__main__":
