@@ -4,18 +4,18 @@
 from __future__ import division
 import sys
 import time
+import math
 import logging
 
 sys.path.append('/home/workDir/hubi/demo_python-master/')
 from huobi.Util import *
 from huobi import HuobiService
 
-#latest_sell_order_id=None
 latest_sell_order_id=None
 latest_buy_order_id=None
-max_buy_price=4350
+max_buy_price=0
 transaction_count=0
-transaction_amount=43
+transaction_amount=45
 
 '''
 最近10次交易记录
@@ -25,12 +25,26 @@ def latest_deal_orders():
     print response
 
 '''
-
+获取委托交易信息
 '''
 def get_sell_orders():
     response = HuobiService.getOrders(1,GET_ORDERS)
     print response
 
+'''
+获取个人资产信息
+'''
+def get_asset_info():
+    response = HuobiService.getAccountInfo(ACCOUNT_INFO)
+    if response != None:
+        #print response
+        asset = dict()
+        logging.info('可用现金%f' % float(response['available_cny_display']))
+        asset['available_cny'] = response['available_cny_display']
+        return asset
+    else:
+        logging.error('获取资产信息失败')
+        return None
 '''
 以市价买入
 输入参数：
@@ -75,9 +89,13 @@ def sell_btc(price, amount):
 def get_current_price():
     response = HuobiService.get_realtime_price()
     if response != None:
+        realtime_info = dict()
         #print response
         logging.info('当前人民币市场价格是 %f' % response['ticker']['last'])
-        return response['ticker']['last']
+        realtime_info['last'] = response['ticker']['last']
+        realtime_info['high'] = response['ticker']['high']
+        realtime_info['low'] = response['ticker']['low']
+        return realtime_info
     else:
         logging.warning('Error:get realtime price fail!')
         return None
@@ -112,18 +130,30 @@ class order(object):
             return None
 
 '''
+检查是否需要更新最高买入价
+'''
+def update_max_buy_price(high,low):
+    global max_buy_price
+
+    middle = (high - low) / 2 + low
+    if abs(middle - max_buy_price) > 15 and high - middle > 30:
+        max_buy_price = middle
+        logging.info('重新设置最高买入价为%f' % max_buy_price)
+
+'''
 买入条件判断
 '''
 def can_buy():
     result = False
 
-    realtime_price = get_current_price()
-    if realtime_price != None and realtime_price < max_buy_price:
-        logging.info('当前市场价%f低于设置的最高买入价%f' % (realtime_price, max_buy_price))
+    realtime = get_current_price()
+    if realtime != None and float(realtime['last']) < max_buy_price:
+        logging.info('当前市场价%f低于设置的最高买入价%f' % (float(realtime['last']), max_buy_price))
         result = True
     else:
-        logging.info('当前市场价%f高于设置的最高买入价%f' % (realtime_price, max_buy_price))
+        logging.info('当前市场价%f高于设置的最高买入价%f' % (float(realtime['last']), max_buy_price))
         result = False
+        update_max_buy_price(float(realtime['high']),float(realtime['low']))
         # 第一个条件不满足立即返回
         return result
 
@@ -149,6 +179,7 @@ def do_transaction():
         buy_order = order(latest_buy_order_id)
         info = buy_order.get_order_info()
         sell_price = float(info['processed_price']) + 1
+        # 浮点数精确到小数点后4位
         sell_amount = round(info['amount'],4)
         if sell_price!=0 and sell_amount!=0:
            # 卖出
@@ -166,17 +197,31 @@ def do_transaction():
 
 def main():
     #get_sell_orders()
+    #print get_current_price()
+    #get_asset_info()
     logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s %(message)s')
     while 1:
         if transaction_count==0:
-            logging.info('初次以市场价买入')
-            do_transaction()
+            global max_buy_price
+
+            realtime = get_current_price()
+            middle = (realtime['high'] - realtime['low']) / 2 + realtime['low']
+            # 初始化最大买入价格
+            max_buy_price = middle
+            asset = get_asset_info()
+            print float(asset['available_cny'])
+            if asset != None and float(asset['available_cny']) > transaction_amount * 2 and realtime['last'] < max_buy_price:
+                logging.info('初次以市场价%f买入' % realtime['last'])
+                do_transaction()
+            else:
+                logging.info('可用金额不足或市场价高于最高可买入价%f,无法买入' % max_buy_price)
+                time.sleep(120)
         elif can_buy():
             logging.info('现在立刻以市场价买入')
             do_transaction()
         else:
             logging.info('稍后再尝试买入')
-            time.sleep(30)
+            time.sleep(10)
 
 if __name__ == "__main__":
     main()
