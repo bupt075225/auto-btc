@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import division
+from requests.exceptions import ConnectionError
 import sys
 import time
 import math
@@ -16,8 +17,9 @@ latest_buy_order_id=None
 lowest_buy_order_id=None
 max_buy_price=0
 transaction_count=0
-transaction_amount=45
+transaction_amount=44
 last_low_price=0
+orange_warnning = False
 
 
 '''
@@ -59,7 +61,12 @@ def get_asset_info():
   amount:买入总金额(RMB为单位)
 '''
 def buy_btc_market(amount):
-    response = HuobiService.buyMarket(BITCOIN,amount,None,None,BUY_MARKET)
+    try:
+        response = HuobiService.buyMarket(BITCOIN,amount,None,None,BUY_MARKET)
+    except ConnectionError as e:
+        logging.exception(e)
+        return None
+
     #print response
     if response != None and response['result']=='success':
         info = dict()
@@ -77,8 +84,13 @@ def buy_btc_market(amount):
   amount:卖出BTC的数量
 '''
 def sell_btc_market(amount):
-    response = HuobiService.sellMarket(BITCOIN,amount,None,None,SELL_MARKET)
-    print response
+    try:
+        response = HuobiService.sellMarket(BITCOIN,amount,None,None,SELL_MARKET)
+        print response
+    except ConnectionError as e:
+        logging.exception(e)
+        return None
+
     if response != None and response['result']=='success':
         info = dict()
         info['id'] = response['id']
@@ -95,8 +107,12 @@ def sell_btc_market(amount):
   amount:卖出BTC的数量
 '''
 def sell_btc(price, amount):
-    response = HuobiService.sell(BITCOIN,price,amount,None,None,SELL)
-    #print response
+    try:
+        response = HuobiService.sell(BITCOIN,price,amount,None,None,SELL)
+        #print response
+    except ConnectionError as e:
+        logging.exception(e)
+        return None
     if response != None and response['result']=='success':
         info = dict()
         info['id'] = response['id']
@@ -112,7 +128,7 @@ def sell_btc(price, amount):
 def get_current_price():
     try:
         response = HuobiService.get_realtime_price()
-    except ConnectionError, e:
+    except ConnectionError as e:
         logging.exception(e)
         return None
 
@@ -135,7 +151,12 @@ class order(object):
         self.order_id = order_id
 
     def get_order_info(self):
-        response = HuobiService.getOrderInfo(BITCOIN,self.order_id,ORDER_INFO)
+        try:
+            response = HuobiService.getOrderInfo(BITCOIN,self.order_id,ORDER_INFO)
+        except ConnectionError as e:
+            logging.exception(e)
+            return None
+
         if response != None:
             #print response
             info = dict()
@@ -147,7 +168,7 @@ class order(object):
             if response['type']==3:
                 # 市价买单
                 logging.info('%f %s 状态是 %s' % (float(response['processed_price']),self.order_type[response['type']],self.order_status[response['status']]))
-                info['amount'] = float(response['processed_amount']) / float(response['processed_price'])
+                info['amount'] = round(float(response['processed_amount']) / float(response['processed_price']),4)
             elif response['type']==2:
                 # 限价卖单
                 logging.info('%s %s 状态是 %s' % (float(response['order_price']),self.order_type[response['type']],self.order_status[response['status']]))
@@ -194,6 +215,10 @@ def trace_high_price():
         # 在刷新后的最高价附近卖出
         buy_order = order(lowest_buy_order_id)
         info = buy_order.get_order_info()
+        if info==None:
+            logging.error("获取交易信息失败,稍后重试")
+            return
+
         ret = sell_btc_market(info['amount'])
         if ret != None and ret['result']=='success':
             logging.info('在高价%f附近卖出成功' % realtime['last'])
@@ -207,6 +232,7 @@ def trace_high_price():
 def trace_low_price():
     global last_low_price
     global lowest_buy_order_id
+    global orange_warnning
     price_check_count = 0
     interval = 180
 
@@ -221,9 +247,12 @@ def trace_low_price():
             # 价格持续下迭,加长观察时间
             interval += 180
             continue
-        elif lowest_buy_order_id != None and realtime['last'] - realtime['low'] < 10:
+        else:
+            break
+        '''
+        elif lowest_buy_order_id != None and realtime['last'] - realtime['low'] < 10 and realtime['high'] - realtime['low'] > 30:
             # 最低价没被刷新,也没有在最高价附近成功卖出,价格开始迭落,接近最低价前卖出
-            logging.info('最低价没有被刷新,准备卖出最低价')
+            logging.info('最低价没有被刷新,市场逼近最低价,准备卖出最低价')
             buy_order = order(lowest_buy_order_id)
             info = buy_order.get_order_info()
             ret = sell_btc_market(info['amount'])
@@ -235,7 +264,7 @@ def trace_low_price():
             break
         else:
             break
-
+        '''
 
     if price_check_count > 0 and lowest_buy_order_id==None and realtime['last'] - realtime['low'] < 20:
         price_check_count = 0
@@ -243,16 +272,26 @@ def trace_low_price():
         rsp = buy_btc_market(transaction_amount)
         if rsp['result']=='success':
             lowest_buy_order_id = rsp['id']
+            orange_warnning = False
         return rsp['result'];
         
 '''
 买入条件判断
 '''
 def can_buy():
+    global orange_warnning
     result = False
 
     realtime = get_current_price()
     if realtime==None:
+        return result
+
+    update_max_buy_price(realtime['high'],realtime['low'])
+
+    if orange_warnning==True:
+        logging.info('价格进入过高位,橙色交易警告')
+        trace_low_price()
+        trace_high_price()
         return result
 
     if abs(realtime['low'] - last_low_price) > 20:
@@ -261,17 +300,20 @@ def can_buy():
         trace_low_price()
         return result
 
-    if float(realtime['last']) < max_buy_price and lowest_buy_order_id!=None:
+    if float(realtime['last']) < max_buy_price and orange_warnning==False:
         # 在价格上涨阶段买卖,下迭阶段即使低于中值也不买入,否则容易高价位套住
         logging.info('当前市场价%f低于设置的最高买入价%f' % (float(realtime['last']), max_buy_price))
         result = True
-    else:
+    elif float(realtime['last']) > max_buy_price:
         logging.info('当前市场价%f高于设置的最高买入价%f' % (float(realtime['last']), max_buy_price))
         if realtime['high'] - realtime['low'] < 20:
             logging.info('最高价与最低价价差小于20,可以买入')
             result = True
+        elif realtime['last'] - max_buy_price > 10:
+            logging.info('价格上涨进入高位,停止自动交易,等待刷新最低价')
+            orange_warnning = True
+            return False
         else:
-            update_max_buy_price(float(realtime['high']),float(realtime['low']))
             trace_high_price()
             result = False
             # 第一个条件不满足立即返回
@@ -283,6 +325,7 @@ def can_buy():
         #print order_info
         #print order_info['status']
         #print order_info['order_price']
+        logging.info('上一次交易已完成')
         result = True
     else:
         trace_low_price()
@@ -306,6 +349,9 @@ def do_transaction():
 
         buy_order = order(latest_buy_order_id)
         info = buy_order.get_order_info()
+        if info==None:
+            return 'Fail'
+
         sell_price = float(info['processed_price']) + 1
         # 浮点数精确到小数点后4位
         sell_amount = round(info['amount'],4)
@@ -338,11 +384,12 @@ def auto_transact():
             max_buy_price = middle
             asset = get_asset_info()
             #print float(asset['available_cny'])
-            if asset != None and float(asset['available_cny']) > transaction_amount and realtime['last'] < max_buy_price:
+            #if asset != None and float(asset['available_cny']) > transaction_amount and realtime['last'] < max_buy_price:
+            if asset != None and float(asset['available_cny']) > transaction_amount:
                 logging.info('初次以市场价%f买入' % realtime['last'])
                 do_transaction()
             else:
-                logging.info('可用金额不足或市场价高于最高可买入价%f,无法买入' % max_buy_price)
+                logging.info('可用金额不足或市场价%f高于最高可买入价%f,无法买入' % (realtime['last'],max_buy_price))
                 time.sleep(120)
         elif can_buy():
             logging.info('现在立刻以市场价买入')
@@ -356,6 +403,7 @@ def init_params():
     global max_buy_price
     global transaction_amount
     global transaction_count
+    global orange_warnning
 
     realtime = get_current_price()
     if realtime==None:
@@ -371,6 +419,7 @@ def init_params():
     transaction_amount=45
     #transaction_amount = float(asset['available_cny']) / 3
     transaction_count = 0
+    orange_warnning = False
 
 def main():
     #get_sell_orders()
