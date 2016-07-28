@@ -66,14 +66,15 @@ def buy_btc_market(amount):
     except ConnectionError as e:
         logging.exception(e)
         return None
+    except Exception as e:
+        logging.exception(e)
+        return None
 
     #print response
     if response != None and response['result']=='success':
         info = dict()
         info['id'] = response['id']
         info['result'] = response['result']
-        count = transaction_count + 1
-        logging.info('第%d次以市价买入成功' % count)
         return info
     else:
         logging.warning('Error:buy BTC fail!')
@@ -185,9 +186,9 @@ def update_max_buy_price(high,low):
     global max_buy_price
 
     middle = (high - low) / 2 + low
-    if abs(middle - max_buy_price) > 15 and high - middle > 30:
-        max_buy_price = middle
-        logging.info('重新设置最高买入价为%f' % max_buy_price)
+    #if abs(middle - max_buy_price) > 15 and high - middle > 30:
+    max_buy_price = middle
+    logging.info('重新设置最高买入价为%f' % max_buy_price)
 
 '''
 追踪最高价记录的刷新
@@ -273,6 +274,9 @@ def trace_low_price():
         if rsp['result']=='success':
             lowest_buy_order_id = rsp['id']
             orange_warnning = False
+            logging.info('以市价买入低价单成功')
+        else:
+            logging.info('以市价买入低价单失败')
         return rsp['result'];
         
 '''
@@ -309,7 +313,7 @@ def can_buy():
         if realtime['high'] - realtime['low'] < 20:
             logging.info('最高价与最低价价差小于20,可以买入')
             result = True
-        elif realtime['last'] - max_buy_price > 10:
+        elif realtime['last'] - max_buy_price > 15:
             logging.info('价格上涨进入高位,停止自动交易,等待刷新最低价')
             orange_warnning = True
             return False
@@ -384,8 +388,7 @@ def auto_transact():
             max_buy_price = middle
             asset = get_asset_info()
             #print float(asset['available_cny'])
-            #if asset != None and float(asset['available_cny']) > transaction_amount and realtime['last'] < max_buy_price:
-            if asset != None and float(asset['available_cny']) > transaction_amount:
+            if asset != None and float(asset['available_cny']) > transaction_amount and realtime['last'] < max_buy_price:
                 logging.info('初次以市场价%f买入' % realtime['last'])
                 do_transaction()
             else:
