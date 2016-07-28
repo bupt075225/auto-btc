@@ -186,9 +186,9 @@ def update_max_buy_price(high,low):
     global max_buy_price
 
     middle = (high - low) / 2 + low
-    #if abs(middle - max_buy_price) > 15 and high - middle > 30:
-    max_buy_price = middle
-    logging.info('重新设置最高买入价为%f' % max_buy_price)
+    if (middle - max_buy_price) != 0:
+        max_buy_price = middle
+        logging.info('重新设置最高买入价为%f' % max_buy_price)
 
 '''
 追踪最高价记录的刷新
