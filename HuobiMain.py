@@ -17,10 +17,10 @@ latest_buy_order_id=None
 lowest_buy_order_id=None
 max_buy_price=0
 transaction_count=0
-transaction_amount=44
+transaction_amount=40
 last_low_price=0
 orange_warnning = False
-
+red_line=4
 
 '''
 最近10次交易记录
@@ -185,10 +185,21 @@ class order(object):
 def update_max_buy_price(high,low):
     global max_buy_price
 
-    middle = (high - low) / 2 + low
+    middle = high - ((high - low) / red_line)
     if (middle - max_buy_price) != 0:
         max_buy_price = middle
         logging.info('重新设置最高买入价为%f' % max_buy_price)
+
+'''
+更新单次交易本金
+'''
+def update_transact_price():
+    global transaction_amount
+
+    asset = get_asset_info()
+    if asset!=None and float(asset['available_cny']) > 80:
+        transaction_amount = float(asset['available_cny']) // 2
+        logging.info('重新设置单次交易金额为%f' % transaction_amount)
 
 '''
 追踪最高价记录的刷新
@@ -203,10 +214,12 @@ def trace_high_price():
 
     while 1:
         realtime = get_current_price()
-        if realtime != None and realtime['last'] - realtime['low'] > 30:
+        if realtime != None and realtime['last'] - realtime['low'] > 40:
             # 高价被刷新,等待半分钟看是否继续被刷新
             logging.info('低价单可以在%f卖出' % realtime['last'])
             price_check_count += 1
+            if price_check_count > 5:
+                break
             time.sleep(30)
             continue
         else:
@@ -218,6 +231,10 @@ def trace_high_price():
         info = buy_order.get_order_info()
         if info==None:
             logging.error("获取交易信息失败,稍后重试")
+            return
+
+        if float(info[processed_price]) > realtime['last']:
+            logging.info('市场价低于之前的低价买单价格')
             return
 
         ret = sell_btc_market(info['amount'])
@@ -300,7 +317,7 @@ def can_buy():
 
     if abs(realtime['low'] - last_low_price) > 20:
         # 最低价发生突变,如0点时刻以市场价更新最低价,不适合交易
-        logging('最低价发生突变从%f 变为 %f' % (last_low_price, realtime['low']))
+        logging.info('最低价发生突变从%f 变为 %f' % (last_low_price, realtime['low']))
         trace_low_price()
         return result
 
@@ -331,6 +348,9 @@ def can_buy():
         #print order_info['order_price']
         logging.info('上一次交易已完成')
         result = True
+        # 已卖空买单
+        if lowest_buy_order_id==None:
+            update_transact_price()
     else:
         trace_low_price()
         result = False
@@ -380,12 +400,9 @@ def do_transaction():
 def auto_transact():
     while 1:
         if transaction_count==0:
-            global max_buy_price
-
             realtime = get_current_price()
-            middle = (realtime['high'] - realtime['low']) / 2 + realtime['low']
             # 更新最大买入价格
-            max_buy_price = middle
+            update_max_buy_price(realtime['high'],realtime['low'])
             asset = get_asset_info()
             #print float(asset['available_cny'])
             if asset != None and float(asset['available_cny']) > transaction_amount and realtime['last'] < max_buy_price:
@@ -414,13 +431,13 @@ def init_params():
         sys.exit()
 
     last_low_price = realtime['low']
-    max_buy_price = (realtime['high'] - last_low_price) / 2
+    update_max_buy_price(realtime['high'],realtime['low'])
     asset = get_asset_info()
     if asset==None:
         logging.error('Get asset fail')
         sys.exit()
-    transaction_amount=45
-    #transaction_amount = float(asset['available_cny']) / 3
+    #transaction_amount=45
+    transaction_amount = float(asset['available_cny']) // 2
     transaction_count = 0
     orange_warnning = False
 
