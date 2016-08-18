@@ -1,10 +1,13 @@
 #coding=utf-8
 
 import time
-
+import sys
 import requests
 
-from huobi.Util import *
+#from huobi.Util import *
+sys.path.append('/home/workDir/hubi/auto-btc')
+from Util import *
+from key import *
 
 
 '''

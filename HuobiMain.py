@@ -8,19 +8,25 @@ import time
 import math
 import logging
 
-sys.path.append('/home/workDir/hubi/demo_python-master/')
-from huobi.Util import *
-from huobi import HuobiService
+sys.path.append('/home/workDir/hubi/auto-btc')
+#from huobi.Util import *
+#from huobi import HuobiService
+from Util import *
+import HuobiService
 
 latest_sell_order_id=None
 latest_buy_order_id=None
 lowest_buy_order_id=None
 max_buy_price=0
 transaction_count=0
-transaction_amount=40
+transaction_amount=0
 last_low_price=0
+#市场价超过较高价格时设置报警标志
 orange_warnning = False
+#最高交易价格设置在比最高价低几分之一处
 red_line=4
+#将可用于交易的现金平分为几等份
+cash_division=2
 
 '''
 最近10次交易记录
@@ -157,6 +163,9 @@ class order(object):
         except ConnectionError as e:
             logging.exception(e)
             return None
+        except Exception as e:
+            logging.exception(e)
+            return None
 
         if response != None:
             #print response
@@ -198,7 +207,7 @@ def update_transact_price():
 
     asset = get_asset_info()
     if asset!=None and float(asset['available_cny']) > 80:
-        transaction_amount = float(asset['available_cny']) // 2
+        transaction_amount = float(asset['available_cny']) // cash_division
         logging.info('重新设置单次交易金额为%f' % transaction_amount)
 
 '''
@@ -437,7 +446,7 @@ def init_params():
         logging.error('Get asset fail')
         sys.exit()
     #transaction_amount=45
-    transaction_amount = float(asset['available_cny']) // 2
+    transaction_amount = float(asset['available_cny']) // cash_division
     transaction_count = 0
     orange_warnning = False
 
