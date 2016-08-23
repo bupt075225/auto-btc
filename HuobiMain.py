@@ -9,8 +9,6 @@ import math
 import logging
 
 sys.path.append('/home/workDir/hubi/auto-btc')
-#from huobi.Util import *
-#from huobi import HuobiService
 from Util import *
 import HuobiService
 
@@ -160,32 +158,33 @@ class order(object):
     def get_order_info(self):
         try:
             response = HuobiService.getOrderInfo(BITCOIN,self.order_id,ORDER_INFO)
+            if response != None:
+                #print response
+                info = dict()
+                # 限价单的委托价
+                info['order_price'] = response['order_price']
+                # 成交价格
+                info['processed_price'] = response['processed_price']
+                info['status'] = response['status']
+                if response['type']==3:
+                    # 市价买单
+                    logging.info('%f %s 状态是 %s' % (float(response['processed_price']),self.order_type[response['type']],self.order_status[response['status']]))
+                    info['amount'] = round(float(response['processed_amount']) / float(response['processed_price']),4)
+                elif response['type']==2:
+                    # 限价卖单
+                    logging.info('%s %s 状态是 %s' % (float(response['order_price']),self.order_type[response['type']],self.order_status[response['status']]))
+                    info['amount'] = response['order_amount']
+                return info
+            else:
+                logging.warning('Error:get order info fail!')
+                return None
         except ConnectionError as e:
+            logging.error(resoponse)
             logging.exception(e)
             return None
         except Exception as e:
+            logging.error(resoponse)
             logging.exception(e)
-            return None
-
-        if response != None:
-            #print response
-            info = dict()
-            # 限价单的委托价
-            info['order_price'] = response['order_price']
-            # 成交价格
-            info['processed_price'] = response['processed_price']
-            info['status'] = response['status']
-            if response['type']==3:
-                # 市价买单
-                logging.info('%f %s 状态是 %s' % (float(response['processed_price']),self.order_type[response['type']],self.order_status[response['status']]))
-                info['amount'] = round(float(response['processed_amount']) / float(response['processed_price']),4)
-            elif response['type']==2:
-                # 限价卖单
-                logging.info('%s %s 状态是 %s' % (float(response['order_price']),self.order_type[response['type']],self.order_status[response['status']]))
-                info['amount'] = response['order_amount']
-            return info
-        else:
-            logging.warning('Error:get order info fail!')
             return None
 
 '''
@@ -336,10 +335,11 @@ def can_buy():
         result = True
     elif float(realtime['last']) > max_buy_price:
         logging.info('当前市场价%f高于设置的最高买入价%f' % (float(realtime['last']), max_buy_price))
+        orange_line = (realtime['high'] - max_buy_price) / red_line
         if realtime['high'] - realtime['low'] < 20:
             logging.info('最高价与最低价价差小于20,可以买入')
             result = True
-        elif realtime['last'] - max_buy_price > 15:
+        elif realtime['last'] - max_buy_price > orange_line:
             logging.info('价格上涨进入高位,停止自动交易,等待刷新最低价')
             orange_warnning = True
             return False
@@ -445,15 +445,11 @@ def init_params():
     if asset==None:
         logging.error('Get asset fail')
         sys.exit()
-    #transaction_amount=45
     transaction_amount = float(asset['available_cny']) // cash_division
     transaction_count = 0
     orange_warnning = False
 
 def main():
-    #get_sell_orders()
-    #print get_current_price()
-    #get_asset_info()
     logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s %(message)s')
     init_params()
     try:
