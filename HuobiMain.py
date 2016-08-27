@@ -22,7 +22,7 @@ last_low_price=0
 #市场价超过较高价格时设置报警标志
 orange_warnning = False
 #最高交易价格设置在比最高价低几分之一处
-red_line=4
+red_line=2
 #将可用于交易的现金平分为几等份
 cash_division=2
 
@@ -179,11 +179,11 @@ class order(object):
                 logging.warning('Error:get order info fail!')
                 return None
         except ConnectionError as e:
-            logging.error(resoponse)
+            logging.error(response)
             logging.exception(e)
             return None
         except Exception as e:
-            logging.error(resoponse)
+            logging.error(response)
             logging.exception(e)
             return None
 
